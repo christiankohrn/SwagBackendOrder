@@ -51,6 +51,7 @@ class Shopware_Controllers_Backend_SwagBackendOrder extends Shopware_Controllers
      */
     public function getCustomerAction()
     {
+        $this->TestCK();
         /** @var CustomerRepository $repository */
         $repository = $this->get('swag_backend_order.customer_repository');
 
@@ -74,6 +75,230 @@ class Shopware_Controllers_Backend_SwagBackendOrder extends Shopware_Controllers
             'total' => \count($result),
             'success' => true,
         ]);
+    }
+
+    public function TestCK()
+    {
+        $orderStruct = new \SwagBackendOrder\Components\Order\Struct\OrderStruct();
+        $orderStruct->setNumber(19999);
+        $orderStruct->setCustomerId(1);
+        $orderStruct->setBillingAddressId(1);
+        $orderStruct->setShippingAddressId(1);
+        $orderStruct->setShippingCosts(3.9);
+        $orderStruct->setShippingCostsNet(3.28);
+        $orderStruct->setShippingCostsTaxRate(19.0);
+        $orderStruct->setPaymentId(5);
+        $orderStruct->setDispatchId(9);
+        $orderStruct->setLanguageShopId(1);
+        $orderStruct->setTotal(243.78);
+        $orderStruct->setNetOrder(false);
+        $orderStruct->setTotalWithoutTax(204.86);
+        $orderStruct->setCurrencyId(1);
+        $orderStruct->setTaxFree(false);
+        $orderStruct->setCurrency('');
+        $orderStruct->setDeviceType('');
+        $orderStruct->setSendMail(false);
+
+        $position = new \SwagBackendOrder\Components\Order\Struct\PositionStruct();
+        $position->setNumber('SW10005');
+        $position->setName('Variantenartikel');
+        //Geht nicht
+        /*
+        $position->setQuantity(7);
+        $position->setTotal(139.93);
+        */
+        $position->setQuantity(7);
+        $position->setTotal(39.98);
+
+        $position->setTaxRate(19.0);
+        $position->setPrice(19.99);
+
+        $position->setMode(0);
+        $position->setArticleId(0);
+        $position->setDetailId(0);
+        $position->setStatusId(0);
+        $position->setEan('');
+        $position->setTaxId(1);
+        $orderStruct->addPosition($position);
+
+        /** @var ModelManager $modelManager */
+        $modelManager = $this->get('models');
+
+        //we need to fake a shop instance if we want to use the Articles Module
+        /** @var Repository $shopRepository */
+        $shopRepository = $this->get('models')->getRepository(Shop::class);
+        $shop = $shopRepository->getActiveById($orderStruct->getLanguageShopId());
+
+        if ($shop === null) {
+            throw new RuntimeException('Shop not found');
+        }
+
+        $this->get('shopware.components.shop_registration_service')->registerResources($shop);
+
+        /** @var OrderServiceInterface $orderService */
+        $orderService = $this->get('swag_backend_order.order.service');
+        $order = $orderService->create($orderStruct);
+
+        $modelManager->getConnection()->commit();
+
+        if ($orderStruct->getSendMail()) {
+            $this->sendOrderConfirmationMail($order);
+        }
+    }
+
+    public function TestCK2()
+    {
+        /** @var ModelManager $modelManager */
+        $modelManager = $this->get('models');
+        $customer = $modelManager->find(Customer::class, 1);
+        $order = new \Shopware\Models\Order\Order();
+        $order->setCustomer($customer);
+
+        $dispatch = $modelManager->find(Dispatch::class, 1);
+        $order->setDispatch($dispatch);
+
+        $payment = $modelManager->find(Payment::class, 4);
+        $order->setPayment($payment);
+
+        //$orderStatus = $modelManager->getReference(Status::class, 0);
+        $order->setOrderStatus(0);
+
+        //$paymentStatus = $modelManager->getReference(Status::class, 17);
+        $order->setPaymentStatus(17);
+
+        $languageSubShop = $modelManager->find(Shop::class, 1);
+        $order->setLanguageSubShop($languageSubShop);
+
+        $order->setInvoiceShippingNet(3.28);
+        $order->setInvoiceShipping(3.9);
+        $order->setInvoiceShippingTaxRate(19);
+
+        $order->setInvoiceAmount(143.83);
+        $order->setInvoiceAmountNet(120.87);
+
+        $order->setShop($customer->getShop());
+
+        $order->setOrderTime(new \DateTime());
+
+        $order->setDeviceType('Backend');
+
+        $order->setTransactionId('');
+        $order->setComment('');
+        $order->setCustomerComment('');
+        $order->setInternalComment('');
+        $order->setTemporaryId('');
+        $order->setReferer('');
+        $order->setTrackingCode('');
+        $order->setRemoteAddress('');
+
+        $order->setNet(0);
+        $order->setTaxFree(0);
+
+        /** @var Currency $currency */
+        $currency = $modelManager->getReference(Currency::class, 1);
+        $order->setCurrencyFactor($currency->getFactor());
+        $order->setCurrency($currency->getCurrency());
+
+        $billing = new \Shopware\Models\Order\Billing();
+        $billing->fromAddress($customer->getDefaultBillingAddress());
+        $billing->setCustomer($customer);
+        $order->setBilling($billing);
+
+        $shipping = new \Shopware\Models\Order\Shipping();
+        $shipping->fromAddress($customer->getDefaultShippingAddress());
+        $shipping->setCustomer($customer);
+        $order->setShipping($shipping);
+
+
+        $paymentId = $order->getPayment()->getId();
+        $paymentInstance = new \Shopware\Models\Payment\PaymentInstance();
+
+        /** @var PaymentData[] $paymentDataModel */
+        $paymentDataModel = $order->getCustomer()->getPaymentData()->filter(function (PaymentData $paymentData) use ($paymentId) {
+            return $paymentData->getPaymentMeanId() == $paymentId;
+        });
+
+        if ($paymentDataModel[0] instanceof PaymentData) {
+            /** @var PaymentData $paymentDataModel */
+            $paymentDataModel = $paymentDataModel[0];
+
+            $paymentInstance->setBankName($paymentDataModel->getBankName());
+            $paymentInstance->setBankCode($paymentDataModel->getBankCode());
+            $paymentInstance->setAccountHolder($paymentDataModel->getAccountHolder());
+
+            $paymentInstance->setIban($paymentDataModel->getIban());
+            $paymentInstance->setBic($paymentDataModel->getBic());
+
+            $paymentInstance->setBankCode($paymentDataModel->getBankCode());
+            $paymentInstance->setAccountNumber($paymentDataModel->getAccountHolder());
+        }
+
+        $paymentInstance->setPaymentMean($order->getPayment());
+
+        $paymentInstance->setOrder($order);
+        $paymentInstance->setCreatedAt($order->getOrderTime());
+
+        $paymentInstance->setCustomer($order->getCustomer());
+        $paymentInstance->setFirstName($order->getBilling()->getFirstName());
+        $paymentInstance->setLastName($order->getBilling()->getLastName());
+        $paymentInstance->setAddress($order->getBilling()->getStreet());
+        $paymentInstance->setZipCode($order->getBilling()->getZipCode());
+        $paymentInstance->setCity($order->getBilling()->getCity());
+        $paymentInstance->setAmount($order->getInvoiceAmount());
+        $order->setPaymentInstances($paymentInstance);
+
+        $details = [];
+        $detail = new \Shopware\Models\Order\Detail();
+
+        $articleDetail = $modelManager->find(Detail::class, 16);
+        $article = $articleDetail->getArticle();
+
+        $tax = $modelManager->find(Tax::class, 1);
+
+
+        $detail->setTaxRate(19);
+
+        $detail->setEsdArticle(0);
+
+        /** @var DetailStatus $detailStatus */
+        $detail->setStatus(0);
+
+        $detail->setArticleId($article->getId());
+        $detail->setArticleDetail($articleDetail);
+        $name = $article->getName();
+        $detail->setArticleName($name);
+        $detail->setArticleNumber('SW10005');
+        $detail->setPrice(19.99);
+        $detail->setQuantity(1);
+        $detail->setShipped(0);
+        $detail->setUnit($articleDetail->getUnit() ? $articleDetail->getUnit()->getName() : 0);
+        $detail->setPackUnit($articleDetail->getPackUnit());
+        //$detail->setAttribute($this->createDetailAttribute());
+        $detail->setNumber('SW10005');
+        $detail->setOrder($order);
+        $details[] = $detail;
+
+        $order->setDetails($details);
+
+        //$order->setPaymentInstances([$this->createPaymentInstance($order)]);
+
+        $shopRepository = $this->get('models')->getRepository(Shop::class);
+        $shop = $shopRepository->getActiveById(1);
+
+        $this->get('shopware.components.shop_registration_service')->registerResources($shop);
+
+        $modelManager->persist($order);
+        foreach ($order->getPaymentInstances() as $instance) {
+            $modelManager->persist($instance);
+        }
+        try {
+            $modelManager->flush($order);
+        }
+        catch (Exception $e)
+        {
+            sleep(100);
+        }
+
     }
 
     public function createOrderAction()
